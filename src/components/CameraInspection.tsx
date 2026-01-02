@@ -28,6 +28,7 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   // Camera starts only after user clicks the button
   const [hasStarted, setHasStarted] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [distanceStatus, setDistanceStatus] = useState<DistanceStatus>('no_vehicle');
   const [distanceMessage, setDistanceMessage] = useState<string>('Center the vehicle in view to begin.');
   const [speedWarning, setSpeedWarning] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   const frameCounterRef = useRef(0);
   const lastDetectionTimeRef = useRef<number>(0);
   const detectionTimeoutRef = useRef<number>(0);
+  const damageDetectionsRef = useRef<Array<{ box: Box; confidence: number; label: string }>>([]);
 
   useEffect(() => {
     if (!hasStarted) return;
@@ -159,7 +161,20 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
       }
 
       if (vehicleBox) {
+        // Draw vehicle bounding box in green
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 3;
         ctx.strokeRect(vehicleBox.x, vehicleBox.y, vehicleBox.width, vehicleBox.height);
+
+        // Detect damage within vehicle area (run less frequently for performance)
+        if (frameCounterRef.current % (detectionInterval * 3) === 0) {
+          detectDamageInVehicleArea(ctx, canvas, vehicleBox, damageDetectionsRef);
+        }
+
+        // Draw damage bounding boxes
+        damageDetectionsRef.current.forEach((detection) => {
+          drawDamageBox(ctx, detection.box, detection.confidence, detection.label);
+        });
 
         const ratio = vehicleBox.width / canvas.width;
         let status: DistanceStatus;
@@ -183,6 +198,15 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
         // Speed estimation based on horizontal movement of vehicle center.
         const centerX = vehicleBox.x + vehicleBox.width / 2;
         const now = performance.now();
+        
+        // Clear old damage detections if vehicle moved significantly
+        if (lastVehicleCenterRef.current) {
+          const dx = Math.abs(centerX - lastVehicleCenterRef.current.x);
+          if (dx > 50) {
+            // Vehicle moved, clear old damage detections
+            damageDetectionsRef.current = [];
+          }
+        }
         const last = lastVehicleCenterRef.current;
         if (last) {
           const dx = Math.abs(centerX - last.x);
@@ -289,22 +313,54 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   const uploadAndAnalyze = async (blob: Blob) => {
     const formData = new FormData();
     formData.append('video', blob, 'inspection.webm');
+    
+    // Get API URL from environment variable or use default
+    // In production, set VITE_API_URL to your backend URL
+    // In development, defaults to localhost:3001
+    const env = (import.meta as any).env || {};
+    const apiUrl = env.VITE_API_URL || (env.DEV !== false ? 'http://localhost:3001' : window.location.origin);
+    const apiEndpoint = `${apiUrl}/api/process-video`;
+    
     try {
-      // Show loading state
-      setDistanceMessage('Uploading and analyzing video...');
+      // Show analyzing state
+      setIsAnalyzing(true);
+      setDistanceMessage('Analyzing video...');
       
-      const res = await fetch('http://localhost:3001/api/process-video', {
+      console.log('Uploading video to:', apiEndpoint);
+      
+      const res = await fetch(apiEndpoint, {
         method: 'POST',
         body: formData
       });
+      
       if (!res.ok) {
-        throw new Error('Failed to process video');
+        const errorText = await res.text();
+        console.error('Server error:', errorText);
+        throw new Error(`Failed to process video: ${res.status} ${res.statusText}`);
       }
+      
       const data = await res.json();
+      console.log('Video processed successfully:', data);
+      setIsAnalyzing(false);
       onInspectionComplete(data);
     } catch (err) {
-      console.error(err);
-      alert('Video processing failed. Please ensure the backend server is running on port 3001.');
+      console.error('Video processing error:', err);
+      setIsAnalyzing(false);
+      let errorMessage = 'Video processing failed. ';
+      
+      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        errorMessage += '\n\n❌ Cannot connect to backend server.\n\n';
+        errorMessage += 'Please ensure:\n';
+        errorMessage += '1. Backend server is running (cd server && npm start)\n';
+        errorMessage += '2. Server is accessible at: ' + apiUrl + '\n';
+        errorMessage += '3. Check your .env file has VITE_API_URL set correctly';
+      } else if (err instanceof Error) {
+        errorMessage += err.message;
+      } else {
+        errorMessage += 'Please check your connection and ensure the backend server is running.';
+      }
+      
+      alert(errorMessage);
     }
   };
 
@@ -362,6 +418,16 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
 
   return (
     <div className={`camera-layout ${isMobile ? 'camera-layout-mobile' : ''}`}>
+      {/* Analyzing Overlay */}
+      {isAnalyzing && (
+        <div className="analyzing-overlay">
+          <div className="analyzing-content">
+            <div className="analyzing-spinner"></div>
+            <h2>Analyzing Video</h2>
+            <p>Please wait while we process your 360° inspection...</p>
+          </div>
+        </div>
+      )}
       <div className={`camera-panel ${isMobile ? 'camera-panel-mobile' : ''}`}>
         <div className={`video-container ${isMobile ? 'video-container-mobile' : ''}`}>
           <video ref={videoRef} className="video-element" playsInline muted />
@@ -618,4 +684,174 @@ function selectVehiclePrediction(
   return sorted[0];
 }
 
+// Detect damage in the vehicle area using image analysis
+function detectDamageInVehicleArea(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  vehicleBox: Box,
+  damageDetectionsRef: React.MutableRefObject<Array<{ box: Box; confidence: number; label: string }>>
+) {
+  try {
+    // Extract image data from vehicle area
+    const imageData = ctx.getImageData(
+      vehicleBox.x,
+      vehicleBox.y,
+      vehicleBox.width,
+      vehicleBox.height
+    );
+    
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+    
+    // Simple damage detection heuristics:
+    // 1. Look for areas with high contrast (scratches, dents)
+    // 2. Look for irregular patterns
+    // 3. Look for color anomalies
+    
+    const damageAreas: Array<{ x: number; y: number; width: number; height: number; confidence: number }> = [];
+    const blockSize = 40; // Analyze in blocks
+    const threshold = 0.3; // Sensitivity threshold
+    
+    for (let y = 0; y < height - blockSize; y += blockSize) {
+      for (let x = 0; x < width - blockSize; x += blockSize) {
+        let totalContrast = 0;
+        let pixelCount = 0;
+        let maxDiff = 0;
+        
+        // Calculate contrast and variance in this block
+        for (let by = 0; by < blockSize && y + by < height; by++) {
+          for (let bx = 0; bx < blockSize && x + bx < width; bx++) {
+            const idx = ((y + by) * width + (x + bx)) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+            const brightness = (r + g + b) / 3;
+            
+            // Compare with neighbors
+            if (bx > 0 && by > 0) {
+              const prevIdx = ((y + by - 1) * width + (x + bx - 1)) * 4;
+              const prevR = data[prevIdx];
+              const prevG = data[prevIdx + 1];
+              const prevB = data[prevIdx + 1];
+              const prevBrightness = (prevR + prevG + prevB) / 3;
+              
+              const diff = Math.abs(brightness - prevBrightness);
+              totalContrast += diff;
+              maxDiff = Math.max(maxDiff, diff);
+              pixelCount++;
+            }
+          }
+        }
+        
+        const avgContrast = pixelCount > 0 ? totalContrast / pixelCount : 0;
+        const contrastScore = avgContrast / 255; // Normalize to 0-1
+        
+        // Detect damage if contrast is high (scratches, dents create high contrast)
+        if (contrastScore > threshold || maxDiff > 50) {
+          const confidence = Math.min(0.95, 0.4 + (contrastScore * 0.5) + (maxDiff / 255) * 0.3);
+          
+          damageAreas.push({
+            x: vehicleBox.x + x,
+            y: vehicleBox.y + y,
+            width: Math.min(blockSize, width - x),
+            height: Math.min(blockSize, height - y),
+            confidence: confidence
+          });
+        }
+      }
+    }
+    
+    // Merge nearby damage areas and update detections
+    const merged = mergeNearbyBoxes(damageAreas);
+    damageDetectionsRef.current = merged.map(area => ({
+      box: { x: area.x, y: area.y, width: area.width, height: area.height },
+      confidence: area.confidence,
+      label: 'DAMAGE'
+    }));
+  } catch (error) {
+    console.error('Damage detection error:', error);
+  }
+}
+
+// Merge nearby bounding boxes
+function mergeNearbyBoxes(
+  boxes: Array<{ x: number; y: number; width: number; height: number; confidence: number }>
+): Array<{ x: number; y: number; width: number; height: number; confidence: number }> {
+  if (boxes.length === 0) return [];
+  
+  const merged: Array<{ x: number; y: number; width: number; height: number; confidence: number }> = [];
+  const used = new Set<number>();
+  
+  for (let i = 0; i < boxes.length; i++) {
+    if (used.has(i)) continue;
+    
+    let currentBox = { ...boxes[i] };
+    used.add(i);
+    
+    // Find and merge nearby boxes
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (used.has(j)) continue;
+      
+      const otherBox = boxes[j];
+      const distance = Math.sqrt(
+        Math.pow((currentBox.x + currentBox.width / 2) - (otherBox.x + otherBox.width / 2), 2) +
+        Math.pow((currentBox.y + currentBox.height / 2) - (otherBox.y + otherBox.height / 2), 2)
+      );
+      
+      // Merge if boxes are close (within 60 pixels)
+      if (distance < 60) {
+        const minX = Math.min(currentBox.x, otherBox.x);
+        const minY = Math.min(currentBox.y, otherBox.y);
+        const maxX = Math.max(currentBox.x + currentBox.width, otherBox.x + otherBox.width);
+        const maxY = Math.max(currentBox.y + currentBox.height, otherBox.y + otherBox.height);
+        
+        currentBox = {
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
+          confidence: Math.max(currentBox.confidence, otherBox.confidence)
+        };
+        used.add(j);
+      }
+    }
+    
+    merged.push(currentBox);
+  }
+  
+  return merged;
+}
+
+// Draw damage bounding box with label
+function drawDamageBox(
+  ctx: CanvasRenderingContext2D,
+  box: Box,
+  confidence: number,
+  label: string
+) {
+  // Draw red bounding box
+  ctx.strokeStyle = '#f44336';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(box.x, box.y, box.width, box.height);
+  
+  // Draw label background
+  const labelText = `${label} ${Math.round(confidence * 100)}%`;
+  ctx.font = 'bold 14px system-ui, sans-serif';
+  const textMetrics = ctx.measureText(labelText);
+  const labelWidth = textMetrics.width + 12;
+  const labelHeight = 20;
+  const labelX = box.x;
+  const labelY = Math.max(0, box.y - labelHeight);
+  
+  // Draw label background
+  ctx.fillStyle = '#f44336';
+  ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+  
+  // Draw label text
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(labelText, labelX + 6, labelY + 3);
+}
 

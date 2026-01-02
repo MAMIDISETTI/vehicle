@@ -112,11 +112,6 @@ export const InspectionSummary: React.FC<Props> = ({ summary, onRestart }) => {
           </h1>
           <div className="vehicle-details">
             {vehicleInfo.mileage && <div>Mileage: {vehicleInfo.mileage.toLocaleString()} miles</div>}
-            {summaryData.conditionRating && (
-              <div className="condition-rating">
-                Condition Rating (CR): <span className="rating-badge">{summaryData.conditionRating.toFixed(1)}</span>
-              </div>
-            )}
             {vehicleInfo.vin && (
               <div className="vin">
                 VIN: {vehicleInfo.vin}
@@ -125,96 +120,17 @@ export const InspectionSummary: React.FC<Props> = ({ summary, onRestart }) => {
                 </button>
               </div>
             )}
-            {summaryData.adjustedValue && (
-              <div className="adjusted-value">Adjusted Value: ${summaryData.adjustedValue.toLocaleString()}</div>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="summary-content">
-        {/* Damages Section */}
-        <div className="damages-section">
-          <h2>Detected Damages</h2>
-          {damages.length > 0 ? (
-            <div className="damages-list">
-              {damages.map((damage, index) => (
-                <div key={index} className="damage-item">
-                  {damage.imageUrl && (
-                    <img src={damage.imageUrl} alt={damage.panelName} className="damage-image" />
-                  )}
-                  <div className="damage-info">
-                    <h3>{damage.panelName}</h3>
-                    <div className="damage-meta">
-                      <span className={`severity-badge severity-${damage.severity}`}>
-                        {damage.severity}
-                      </span>
-                      <span className="damage-type">{damage.damageType}</span>
-                    </div>
-                    <p className="damage-description">{damage.description}</p>
-                    {damage.estimatedCost > 0 && (
-                      <div className="damage-cost">Est. Cost: ${damage.estimatedCost.toLocaleString()}</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="no-damages">No damages detected.</p>
-          )}
+      {/* Blueprint Section Only */}
+      {blueprint && blueprint.exterior && (
+        <div className="blueprint-section">
+          <h2>Damage Blueprint</h2>
+          <BlueprintView blueprint={blueprint as any} />
         </div>
-
-        {/* Blueprint Section */}
-        {blueprint && (blueprint.exterior || blueprint.interior) && (
-          <div className="blueprint-section">
-            <h2>Damage Blueprint</h2>
-            <BlueprintView blueprint={blueprint as any} />
-          </div>
-        )}
-
-        {/* Issue Summary */}
-        <div className="issue-summary">
-          <h2>Issue Summary</h2>
-          <div className="summary-grid">
-            <div className="summary-item">
-              <span className="summary-label">Exterior:</span>
-              <span className={`summary-value ${summaryData.totalDamages && summaryData.totalDamages > 0 ? 'has-issues' : 'no-issues'}`}>
-                {summaryData.totalDamages || 0} issue(s)
-              </span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">Interior:</span>
-              <span className="summary-value no-issues">No data</span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">Wheels:</span>
-              <span className="summary-value no-issues">No issues</span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">Tires condition:</span>
-              <span className="summary-value no-issues">No issues</span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">Mechanical / OBD:</span>
-              <span className="summary-value no-issues">No data</span>
-            </div>
-            <div className="summary-item">
-              <span className="summary-label">History report:</span>
-              <span className="summary-value no-issues">No data</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Estimate Totals */}
-        {summaryData.estimatedRepairCost !== undefined && summaryData.estimatedRepairCost > 0 && (
-          <div className="estimate-totals">
-            <button className="estimate-button">
-              Estimate Totals: ${summaryData.estimatedRepairCost.toLocaleString()}
-            </button>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Actions */}
       <div className="summary-actions">
