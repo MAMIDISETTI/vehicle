@@ -11,12 +11,39 @@ body {
   color: #e5e7eb;
 }
 
+/* Prevent scrolling on mobile when camera is active */
+@media (max-width: 768px) {
+  body {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+  }
+  
+  #root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
 .app-root {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   padding: 24px;
   gap: 24px;
+}
+
+/* Mobile full-screen camera view */
+@media (max-width: 768px) {
+  .app-root-mobile {
+    padding: 0;
+    gap: 0;
+    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
+  }
 }
 
 .app-header {
@@ -124,6 +151,23 @@ body {
   }
 }
 
+/* Mobile full-screen camera layout */
+@media (max-width: 768px) {
+  .camera-layout-mobile {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    z-index: 1;
+  }
+}
+
 .camera-panel,
 .summary-main {
   background: radial-gradient(circle at top left, #111827, #020617);
@@ -131,6 +175,22 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.2);
   padding: 16px 16px 20px;
   box-shadow: 0 22px 45px rgba(15, 23, 42, 0.9);
+}
+
+/* Mobile camera panel - full screen */
+@media (max-width: 768px) {
+  .camera-panel-mobile {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+    overflow: hidden;
+  }
 }
 
 .info-panel,
@@ -151,10 +211,36 @@ body {
   aspect-ratio: 16 / 9;
 }
 
+/* Mobile full-screen video */
+@media (max-width: 768px) {
+  .video-container-mobile {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+    aspect-ratio: auto;
+    z-index: 1;
+  }
+}
+
 .video-element {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* Mobile video element - full screen */
+@media (max-width: 768px) {
+  .video-container-mobile .video-element {
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+  }
 }
 
 .overlay-canvas {
@@ -163,6 +249,14 @@ body {
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+/* Mobile overlay canvas - full screen */
+@media (max-width: 768px) {
+  .video-container-mobile .overlay-canvas {
+    width: 100vw;
+    height: 100vh;
+  }
 }
 
 .status-bar {
@@ -241,6 +335,15 @@ body {
 .progress-percent {
   font-size: 12px;
   color: #e5e7eb;
+  font-weight: 600;
+}
+
+/* Mobile progress percent - larger and more visible */
+@media (max-width: 768px) {
+  .progress-percent {
+    font-size: 14px;
+    font-weight: 700;
+  }
 }
 
 .guidance-text {
@@ -259,6 +362,19 @@ body {
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
+}
+
+/* Mobile controls - positioned at bottom */
+@media (max-width: 768px) {
+  .controls-mobile {
+    position: fixed;
+    bottom: 20px;
+    left: 16px;
+    right: 16px;
+    margin-top: 0;
+    z-index: 100;
+    pointer-events: auto;
+  }
 }
 
 .primary-button,
@@ -292,6 +408,39 @@ body {
   cursor: not-allowed;
   background: rgba(34, 197, 94, 0.3);
   box-shadow: none;
+}
+
+/* Mobile button styles */
+@media (max-width: 768px) {
+  .primary-button-mobile,
+  .secondary-button-mobile {
+    width: 100%;
+    padding: 16px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    position: relative;
+    z-index: 101;
+  }
+  
+  .primary-button-mobile {
+    background: radial-gradient(circle at top left, #22c55e, #16a34a);
+    box-shadow: 0 4px 16px rgba(34, 197, 94, 0.5);
+  }
+  
+  .primary-button-mobile:disabled {
+    background: rgba(34, 197, 94, 0.4);
+    opacity: 0.7;
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+  }
+  
+  .secondary-button-mobile {
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    color: #ffffff;
+    backdrop-filter: blur(10px);
+  }
 }
 
 .secondary-button {
@@ -437,6 +586,346 @@ body {
 
 .summary-actions {
   margin-top: 16px;
+}
+
+/* New Blueprint-Style Summary Layout */
+.summary-layout-new {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+  color: #e5e7eb;
+}
+
+.summary-header {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 24px;
+  margin-bottom: 32px;
+  padding: 24px;
+  background: radial-gradient(circle at top left, #111827, #020617);
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+@media (max-width: 900px) {
+  .summary-header {
+    grid-template-columns: 1fr;
+  }
+}
+
+.vehicle-visual {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #020617;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.vehicle-visual .vehicle-overview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vehicle-info h1 {
+  margin: 0 0 16px;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.vehicle-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
+  color: #9ca3af;
+}
+
+.condition-rating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rating-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.6);
+  color: #bbf7d0;
+  font-weight: 600;
+}
+
+.vin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.copy-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+}
+
+.adjusted-value {
+  font-weight: 600;
+  color: #e5e7eb;
+  font-size: 16px;
+}
+
+.summary-content {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.damages-section h2,
+.blueprint-section h2,
+.issue-summary h2 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.damages-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.damage-item {
+  background: rgba(15, 23, 42, 0.95);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.damage-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.damage-info h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.damage-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.severity-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.severity-minor {
+  background: rgba(250, 204, 21, 0.2);
+  color: #facc15;
+  border: 1px solid rgba(250, 204, 21, 0.6);
+}
+
+.severity-moderate {
+  background: rgba(255, 152, 0, 0.2);
+  color: #ff9800;
+  border: 1px solid rgba(255, 152, 0, 0.6);
+}
+
+.severity-severe {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+  border: 1px solid rgba(244, 67, 54, 0.6);
+}
+
+.damage-type {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.damage-description {
+  margin: 0;
+  font-size: 13px;
+  color: #d1d5db;
+  line-height: 1.5;
+}
+
+.damage-cost {
+  margin-top: 8px;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.no-damages {
+  padding: 24px;
+  text-align: center;
+  color: #9ca3af;
+}
+
+/* Blueprint Styles */
+.blueprint-container {
+  background: rgba(15, 23, 42, 0.95);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 24px;
+}
+
+.blueprint-diagrams {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 32px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 900px) {
+  .blueprint-diagrams {
+    grid-template-columns: 1fr;
+  }
+}
+
+.blueprint-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.blueprint-diagram h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.blueprint-svg {
+  width: 100%;
+  height: auto;
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.damage-yellow {
+  fill: #ffeb3b !important;
+}
+
+.damage-orange {
+  fill: #ff9800 !important;
+}
+
+.damage-red {
+  fill: #f44336 !important;
+}
+
+.blueprint-legend {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.legend-circle {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid #333;
+}
+
+.legend-yellow {
+  background: #ffeb3b;
+}
+
+.legend-orange {
+  background: #ff9800;
+}
+
+.legend-red {
+  background: #f44336;
+}
+
+/* Issue Summary */
+.issue-summary {
+  background: rgba(15, 23, 42, 0.95);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 24px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-label {
+  font-size: 12px;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.summary-value.has-issues {
+  color: #f44336;
+}
+
+.summary-value.no-issues {
+  color: #22c55e;
+}
+
+/* Estimate Totals */
+.estimate-totals {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.estimate-button {
+  padding: 16px 32px;
+  background: #374151;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.estimate-button:hover {
+  background: #4b5563;
 }
 
 

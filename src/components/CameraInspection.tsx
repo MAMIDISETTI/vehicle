@@ -9,7 +9,14 @@ interface Props {
 }
 
 const TARGET_DURATION_SECONDS = 30; // Approximate time for a 360° walk-around
-const DETECTION_INTERVAL = 6; // run detection every N frames to reduce load
+const DETECTION_INTERVAL = 6; // run detection every N frames to reduce load (when not recording)
+const DETECTION_INTERVAL_RECORDING = 3; // more frequent detection when recording to track movement
+
+// Detect if device is mobile
+const isMobileDevice = (): boolean => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+};
 
 export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -17,6 +24,8 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<BlobPart[]>([]);
 
+  const [isMobile] = useState(isMobileDevice());
+  // Camera starts only after user clicks the button
   const [hasStarted, setHasStarted] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [distanceStatus, setDistanceStatus] = useState<DistanceStatus>('no_vehicle');
@@ -31,6 +40,8 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   const lastVehicleCenterRef = useRef<{ x: number; time: number } | null>(null);
   const lastDetectionBoxRef = useRef<Box | null>(null);
   const frameCounterRef = useRef(0);
+  const lastDetectionTimeRef = useRef<number>(0);
+  const detectionTimeoutRef = useRef<number>(0);
 
   useEffect(() => {
     if (!hasStarted) return;
@@ -85,25 +96,53 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
 
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      // Vehicle detection (AI) – use cached detection except every DETECTION_INTERVAL frames.
+      // Vehicle detection (AI) – use more frequent detection when recording to track movement
       frameCounterRef.current += 1;
-      if (model && frameCounterRef.current % DETECTION_INTERVAL === 0) {
+      const detectionInterval = isRecording ? DETECTION_INTERVAL_RECORDING : DETECTION_INTERVAL;
+      const now = performance.now();
+      
+      if (model && frameCounterRef.current % detectionInterval === 0) {
         void model.detect(video).then((preds) => {
           const vehiclePred = selectVehiclePrediction(preds);
           if (vehiclePred) {
             const [x, y, width, height] = vehiclePred.bbox;
             lastDetectionBoxRef.current = { x, y, width, height };
+            lastDetectionTimeRef.current = now;
+            detectionTimeoutRef.current = 0; // Reset timeout on successful detection
           } else {
-            lastDetectionBoxRef.current = null;
+            // If no detection, check if we should clear the cached box
+            // Only clear if we haven't detected for a while (helps during movement)
+            const timeSinceLastDetection = now - lastDetectionTimeRef.current;
+            if (timeSinceLastDetection > 1000) { // 1 second without detection
+              lastDetectionBoxRef.current = null;
+            }
           }
         });
       }
+      
+      // Clear detection if it's been too long since last successful detection (especially when recording)
+      if (isRecording && lastDetectionBoxRef.current && lastDetectionTimeRef.current > 0) {
+        const timeSinceLastDetection = now - lastDetectionTimeRef.current;
+        if (timeSinceLastDetection > 2000) { // 2 seconds without detection during recording
+          lastDetectionBoxRef.current = null;
+          lastDetectionTimeRef.current = 0;
+        }
+      }
 
-      // If model is loaded, rely only on actual detections.
+      // If model is loaded, rely on actual detections.
       // Before model is ready, use a centered fallback box so UI is still usable.
       let vehicleBox: Box | null;
       if (model) {
         vehicleBox = lastDetectionBoxRef.current;
+        // If we have a cached box but it's been a while, validate it's still reasonable
+        if (vehicleBox && lastDetectionTimeRef.current > 0) {
+          const timeSinceLastDetection = now - lastDetectionTimeRef.current;
+          // If detection is stale and we're not recording, be more lenient
+          // If recording, we need fresher detections
+          if (isRecording && timeSinceLastDetection > 1500) {
+            vehicleBox = null; // Require fresher detection when recording
+          }
+        }
       } else {
         vehicleBox = approximateVehicleBox(canvas);
       }
@@ -170,7 +209,7 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
         setProgress(pct);
       }
 
-      drawOverlayUI(ctx, canvas, distanceStatus, distanceMessage, speedWarning, progress);
+      drawOverlayUI(ctx, canvas, distanceStatus, distanceMessage, speedWarning, progress, isMobile);
 
       animationFrameId = requestAnimationFrame(analyzeFrame);
     };
@@ -179,7 +218,7 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
       animationFrameId = requestAnimationFrame(analyzeFrame);
     }
     return () => cancelAnimationFrame(animationFrameId);
-  }, [distanceStatus, distanceMessage, isRecording, progress, speedWarning, startTime, hasStarted, model]);
+  }, [distanceStatus, distanceMessage, isRecording, progress, speedWarning, startTime, hasStarted, model, isMobile]);
 
   // Load vehicle detector (COCO-SSD) once when component mounts.
   useEffect(() => {
@@ -236,6 +275,9 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
     setIsRecording(true);
     setStartTime(performance.now());
     setProgress(0);
+    // Reset detection tracking when starting recording to ensure fresh detections
+    lastDetectionTimeRef.current = performance.now();
+    frameCounterRef.current = 0; // Reset frame counter to trigger immediate detection
   };
 
   const stopRecording = () => {
@@ -248,7 +290,10 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
     const formData = new FormData();
     formData.append('video', blob, 'inspection.webm');
     try {
-      const res = await fetch('/api/process-video', {
+      // Show loading state
+      setDistanceMessage('Uploading and analyzing video...');
+      
+      const res = await fetch('http://localhost:3001/api/process-video', {
         method: 'POST',
         body: formData
       });
@@ -259,7 +304,7 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
       onInspectionComplete(data);
     } catch (err) {
       console.error(err);
-      alert('Video processing failed. Check backend logs.');
+      alert('Video processing failed. Please ensure the backend server is running on port 3001.');
     }
   };
 
@@ -316,61 +361,67 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   }
 
   return (
-    <div className="camera-layout">
-      <div className="camera-panel">
-        <div className="video-container">
+    <div className={`camera-layout ${isMobile ? 'camera-layout-mobile' : ''}`}>
+      <div className={`camera-panel ${isMobile ? 'camera-panel-mobile' : ''}`}>
+        <div className={`video-container ${isMobile ? 'video-container-mobile' : ''}`}>
           <video ref={videoRef} className="video-element" playsInline muted />
           <canvas ref={canvasRef} className="overlay-canvas" />
         </div>
-        <div className="status-bar">
-          <span className={distanceBadge.className}>{distanceBadge.label}</span>
-          {speedWarning && <span className="badge badge-warning">{speedWarning}</span>}
-          <div className="progress-container">
-            <div className="progress-label">360° Coverage</div>
-            <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${progress}%` }} />
+        {!isMobile && (
+          <>
+            <div className="status-bar">
+              <span className={distanceBadge.className}>{distanceBadge.label}</span>
+              {speedWarning && <span className="badge badge-warning">{speedWarning}</span>}
+              <div className="progress-container">
+                <div className="progress-label">360° Coverage</div>
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${progress}%` }} />
+                </div>
+                <div className="progress-percent">{progress.toFixed(0)}%</div>
+              </div>
             </div>
-            <div className="progress-percent">{progress.toFixed(0)}%</div>
-          </div>
-        </div>
-        <div className="guidance-text">
-          <p>{distanceMessage}</p>
-          <p>Walk slowly around the car in a full circle while keeping it centered in the frame.</p>
-        </div>
-        <div className="controls">
+            <div className="guidance-text">
+              <p>{distanceMessage}</p>
+              <p>Walk slowly around the car in a full circle while keeping it centered in the frame.</p>
+            </div>
+          </>
+        )}
+        <div className={`controls ${isMobile ? 'controls-mobile' : ''}`}>
           {!isRecording ? (
             <>
               <button 
-                className="primary-button" 
+                className={`primary-button ${isMobile ? 'primary-button-mobile' : ''}`}
                 onClick={startRecording}
                 disabled={!vehicleDetected}
                 title={!vehicleDetected ? 'Please wait for vehicle detection before starting' : ''}
               >
-                Start 360° Video Inspection
+                {isMobile ? 'Start Recording' : 'Start 360° Video Inspection'}
               </button>
               {!vehicleDetected && (
-                <p className="button-hint" style={{ marginTop: 8, fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
-                  Waiting for vehicle detection...
+                <p className="button-hint" style={{ marginTop: 8, fontSize: isMobile ? 14 : 12, color: isMobile ? '#ffffff' : '#9ca3af', textAlign: 'center', textShadow: isMobile ? '0 1px 2px rgba(0,0,0,0.8)' : 'none' }}>
+                  {isMobile ? 'Waiting for vehicle detection...' : 'Waiting for vehicle detection...'}
                 </p>
               )}
             </>
           ) : (
-            <button className="secondary-button" onClick={stopRecording}>
-              Complete Loop &amp; Analyze
+            <button className={`secondary-button ${isMobile ? 'secondary-button-mobile' : ''}`} onClick={stopRecording}>
+              {isMobile ? 'Stop & Analyze' : 'Complete Loop & Analyze'}
             </button>
           )}
         </div>
       </div>
-      <aside className="info-panel">
-        <h2>Phase-1 Scope</h2>
-        <ul>
-          <li>Live video with overlay guidance.</li>
-          <li>Rule-based distance estimation from vehicle bounding box width.</li>
-          <li>Speed warnings if user moves too quickly.</li>
-          <li>Approximate 360° coverage progress indicator.</li>
-          <li>Video upload for backend processing and basic damage detection.</li>
-        </ul>
-      </aside>
+      {!isMobile && (
+        <aside className="info-panel">
+          <h2>Phase-1 Scope</h2>
+          <ul>
+            <li>Live video with overlay guidance.</li>
+            <li>Rule-based distance estimation from vehicle bounding box width.</li>
+            <li>Speed warnings if user moves too quickly.</li>
+            <li>Approximate 360° coverage progress indicator.</li>
+            <li>Video upload for backend processing and basic damage detection.</li>
+          </ul>
+        </aside>
+      )}
     </div>
   );
 };
@@ -399,7 +450,8 @@ function drawOverlayUI(
   distanceStatus: DistanceStatus,
   distanceMessage: string,
   speedWarning: string | null,
-  progress: number
+  progress: number,
+  isMobile: boolean = false
 ) {
   // Gradient vignette
   const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -412,68 +464,141 @@ function drawOverlayUI(
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Top guidance text
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '20px system-ui, sans-serif';
+  // Top guidance text - enhanced for mobile visibility
+  const topText = 'Walk slowly around the vehicle to capture a full 360° view.';
+  const topTextY = isMobile ? 70 : 36;
+  const fontSize = isMobile ? 20 : 20;
+  const fontWeight = isMobile ? 'bold' : 'normal';
+  
+  ctx.font = `${fontWeight} ${fontSize}px system-ui, sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('Walk slowly around the vehicle to capture a full 360° view.', canvas.width / 2, 36);
+  
+  // Add background for better visibility on mobile
+  if (isMobile) {
+    const textMetrics = ctx.measureText(topText);
+    const textWidth = textMetrics.width;
+    const padding = 20;
+    const bgHeight = fontSize + padding * 1.5;
+    const bgY = topTextY - fontSize - padding / 2;
+    const bgWidth = Math.min(textWidth + padding * 2, canvas.width - 32); // Max width with margins
+    
+    // Draw more opaque background for better contrast
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.roundRect(
+      (canvas.width - bgWidth) / 2,
+      bgY,
+      bgWidth,
+      bgHeight,
+      16
+    );
+    ctx.fill();
+    
+    // Add subtle border for definition
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.roundRect(
+      (canvas.width - bgWidth) / 2,
+      bgY,
+      bgWidth,
+      bgHeight,
+      16
+    );
+    ctx.stroke();
+  }
+  
+  // Draw text with stronger shadow for better visibility
+  ctx.shadowColor = 'rgba(0, 0, 0, 1)';
+  ctx.shadowBlur = isMobile ? 6 : 4;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = isMobile ? 2 : 2;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(topText, canvas.width / 2, topTextY);
+  
+  // Reset shadow
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
 
-  // Distance status pill
-  let pillColor = '#888888';
-  if (distanceStatus === 'too_close') pillColor = '#ff4b5c';
-  else if (distanceStatus === 'too_far') pillColor = '#f5a623';
-  else if (distanceStatus === 'ok') pillColor = '#11c770';
+  // Distance status pill - hide on mobile to avoid overlap with controls
+  if (!isMobile) {
+    let pillColor = '#888888';
+    if (distanceStatus === 'too_close') pillColor = '#ff4b5c';
+    else if (distanceStatus === 'too_far') pillColor = '#f5a623';
+    else if (distanceStatus === 'ok') pillColor = '#11c770';
 
-  const pillWidth = 260;
-  const pillHeight = 34;
-  const pillX = (canvas.width - pillWidth) / 2;
-  const pillY = canvas.height - 90;
+    const pillWidth = 260;
+    const pillHeight = 34;
+    const pillX = (canvas.width - pillWidth) / 2;
+    const pillY = canvas.height - 90;
 
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 18);
-  ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 18);
+    ctx.fill();
 
-  ctx.strokeStyle = pillColor;
-  ctx.lineWidth = 2;
-  ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 18);
-  ctx.stroke();
+    ctx.strokeStyle = pillColor;
+    ctx.lineWidth = 2;
+    ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 18);
+    ctx.stroke();
 
-  ctx.fillStyle = pillColor;
-  ctx.font = '16px system-ui, sans-serif';
-  ctx.fillText(distanceMessage, canvas.width / 2, pillY + 23);
-
-  // Speed warning
-  if (speedWarning) {
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.fillRect(0, canvas.height - 150, canvas.width, 30);
-    ctx.fillStyle = '#ffcc00';
+    ctx.fillStyle = pillColor;
     ctx.font = '16px system-ui, sans-serif';
-    ctx.fillText(speedWarning, canvas.width / 2, canvas.height - 128);
+    ctx.fillText(distanceMessage, canvas.width / 2, pillY + 23);
   }
 
-  // Progress ring in top-right
-  const centerX = canvas.width - 80;
-  const centerY = 70;
-  const radius = 30;
+  // Speed warning - adjust position on mobile
+  if (speedWarning) {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    const warningY = isMobile ? canvas.height - 200 : canvas.height - 150;
+    ctx.fillRect(0, warningY, canvas.width, 30);
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = '16px system-ui, sans-serif';
+    ctx.fillText(speedWarning, canvas.width / 2, warningY + 22);
+  }
+
+  // Progress ring in top-right - enhanced for mobile visibility
+  const centerX = isMobile ? canvas.width - 70 : canvas.width - 80;
+  const centerY = isMobile ? 80 : 70;
+  const radius = isMobile ? 35 : 30;
   const startAngle = -Math.PI / 2;
   const endAngle = startAngle + (2 * Math.PI * progress) / 100;
 
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
   ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 6;
+  ctx.lineWidth = isMobile ? 8 : 6;
   ctx.stroke();
 
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius, startAngle, endAngle);
   ctx.strokeStyle = '#11c770';
-  ctx.lineWidth = 6;
+  ctx.lineWidth = isMobile ? 8 : 6;
   ctx.stroke();
 
+  // Add background circle for better text visibility on mobile
+  if (isMobile) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius - 4, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
   ctx.fillStyle = '#ffffff';
-  ctx.font = '14px system-ui, sans-serif';
+  ctx.font = isMobile ? 'bold 18px system-ui, sans-serif' : '14px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(`${Math.round(progress)}%`, centerX, centerY + 5);
+  ctx.textBaseline = 'middle'; // Center text vertically
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = isMobile ? 4 : 2;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = isMobile ? 2 : 1;
+  ctx.fillText(`${Math.round(progress)}%`, centerX, centerY);
+  
+  // Reset shadow and text baseline
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.textBaseline = 'alphabetic'; // Reset to default
 
   ctx.restore();
 }
