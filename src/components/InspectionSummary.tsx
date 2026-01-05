@@ -1,5 +1,4 @@
 import React from 'react';
-import { BlueprintView } from './BlueprintView';
 
 export type PanelId =
   | 'front_bumper'
@@ -18,21 +17,6 @@ export interface PanelSummary {
   needsRecapture: boolean;
 }
 
-export interface Damage {
-  panelId: string;
-  panelName: string;
-  damageType: string;
-  severity: string;
-  location?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  imageUrl?: string;
-  description: string;
-  estimatedCost: number;
-}
 
 export interface VehicleInfo {
   make?: string;
@@ -42,33 +26,12 @@ export interface VehicleInfo {
   vin?: string;
 }
 
-export interface BlueprintData {
-  exterior: {
-    frontBumper?: string;
-    rearBumper?: string;
-    hood?: string;
-    roof?: string;
-    leftSide?: string;
-    rightSide?: string;
-    leftFender?: string;
-    rightFender?: string;
-    trunk?: string;
-  };
-  interior: {
-    frontSeats?: string;
-    rearSeats?: string;
-    dashboard?: string;
-    doors?: string;
-  };
-}
 
 export interface InspectionSummaryData {
   id?: string;
   videoUrl?: string;
   vehicleImageUrl?: string;
   vehicleInfo?: VehicleInfo;
-  damages?: Damage[];
-  blueprint?: BlueprintData;
   summary?: {
     totalDamages?: number;
     estimatedRepairCost?: number;
@@ -85,8 +48,6 @@ interface Props {
 
 export const InspectionSummary: React.FC<Props> = ({ summary, onRestart }) => {
   const vehicleInfo = summary.vehicleInfo || {};
-  const damages = summary.damages || [];
-  const blueprint = summary.blueprint || { exterior: {}, interior: {} };
   const summaryData = summary.summary || {};
 
   return (
@@ -123,14 +84,6 @@ export const InspectionSummary: React.FC<Props> = ({ summary, onRestart }) => {
           </div>
         </div>
       </div>
-
-      {/* Blueprint Section Only */}
-      {blueprint && blueprint.exterior && (
-        <div className="blueprint-section">
-          <h2>Damage Blueprint</h2>
-          <BlueprintView blueprint={blueprint as any} />
-        </div>
-      )}
 
       {/* Actions */}
       <div className="summary-actions">

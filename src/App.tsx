@@ -16,7 +16,7 @@ const App: React.FC = () => {
       {(!isMobile || summary) && (
         <header className="app-header">
           <h1>AI 360° Vehicle Inspection (Phase 1 Prototype)</h1>
-          <p>Internal engineering prototype – video capture, guidance, and basic damage detection only.</p>
+          <p>Internal engineering prototype – video capture and guidance only.</p>
         </header>
       )}
       {!summary ? (

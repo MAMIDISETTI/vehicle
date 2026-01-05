@@ -43,7 +43,6 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
   const frameCounterRef = useRef(0);
   const lastDetectionTimeRef = useRef<number>(0);
   const detectionTimeoutRef = useRef<number>(0);
-  const damageDetectionsRef = useRef<Array<{ box: Box; confidence: number; label: string }>>([]);
 
   useEffect(() => {
     if (!hasStarted) return;
@@ -166,26 +165,16 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
         ctx.lineWidth = 3;
         ctx.strokeRect(vehicleBox.x, vehicleBox.y, vehicleBox.width, vehicleBox.height);
 
-        // Detect damage within vehicle area (run less frequently for performance)
-        if (frameCounterRef.current % (detectionInterval * 3) === 0) {
-          detectDamageInVehicleArea(ctx, canvas, vehicleBox, damageDetectionsRef);
-        }
-
-        // Draw damage bounding boxes
-        damageDetectionsRef.current.forEach((detection) => {
-          drawDamageBox(ctx, detection.box, detection.confidence, detection.label);
-        });
-
         const ratio = vehicleBox.width / canvas.width;
         let status: DistanceStatus;
         let message: string;
 
         if (ratio > 0.85) {
           status = 'too_close';
-          message = 'Move back slightly – vehicle too large in frame.';
+          message = 'You are very close to the car';
         } else if (ratio < 0.55) {
           status = 'too_far';
-          message = 'Move closer to the car – vehicle too small in frame.';
+          message = 'You are too far from the car';
         } else {
           status = 'ok';
           message = 'Good distance – continue walking slowly around the vehicle.';
@@ -199,14 +188,6 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
         const centerX = vehicleBox.x + vehicleBox.width / 2;
         const now = performance.now();
         
-        // Clear old damage detections if vehicle moved significantly
-        if (lastVehicleCenterRef.current) {
-          const dx = Math.abs(centerX - lastVehicleCenterRef.current.x);
-          if (dx > 50) {
-            // Vehicle moved, clear old damage detections
-            damageDetectionsRef.current = [];
-          }
-        }
         const last = lastVehicleCenterRef.current;
         if (last) {
           const dx = Math.abs(centerX - last.x);
@@ -388,7 +369,7 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
           </div>
           <h2>360° Vehicle Inspection</h2>
           <p className="landing-subtitle">
-            Walk around your vehicle while recording to detect visible damage on all panels.
+            Walk around your vehicle while recording to capture a full 360° view.
           </p>
           <div className="landing-instructions">
             <h3>Instructions</h3>
@@ -484,7 +465,7 @@ export const CameraInspection: React.FC<Props> = ({ onInspectionComplete }) => {
             <li>Rule-based distance estimation from vehicle bounding box width.</li>
             <li>Speed warnings if user moves too quickly.</li>
             <li>Approximate 360° coverage progress indicator.</li>
-            <li>Video upload for backend processing and basic damage detection.</li>
+            <li>Video upload for backend processing.</li>
           </ul>
         </aside>
       )}
@@ -672,7 +653,7 @@ function drawOverlayUI(
 function selectVehiclePrediction(
   predictions: cocoSsd.DetectedObject[]
 ): cocoSsd.DetectedObject | null {
-  const allowed = new Set(['car', 'truck', 'bus', 'motorcycle']);
+  const allowed = new Set(['car']);
   const vehicleDetections = predictions.filter((p) => allowed.has(p.class));
   if (vehicleDetections.length === 0) return null;
   // Choose the largest detected vehicle by area.
@@ -682,176 +663,5 @@ function selectVehiclePrediction(
     return areaB - areaA;
   });
   return sorted[0];
-}
-
-// Detect damage in the vehicle area using image analysis
-function detectDamageInVehicleArea(
-  ctx: CanvasRenderingContext2D,
-  canvas: HTMLCanvasElement,
-  vehicleBox: Box,
-  damageDetectionsRef: React.MutableRefObject<Array<{ box: Box; confidence: number; label: string }>>
-) {
-  try {
-    // Extract image data from vehicle area
-    const imageData = ctx.getImageData(
-      vehicleBox.x,
-      vehicleBox.y,
-      vehicleBox.width,
-      vehicleBox.height
-    );
-    
-    const data = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-    
-    // Simple damage detection heuristics:
-    // 1. Look for areas with high contrast (scratches, dents)
-    // 2. Look for irregular patterns
-    // 3. Look for color anomalies
-    
-    const damageAreas: Array<{ x: number; y: number; width: number; height: number; confidence: number }> = [];
-    const blockSize = 40; // Analyze in blocks
-    const threshold = 0.3; // Sensitivity threshold
-    
-    for (let y = 0; y < height - blockSize; y += blockSize) {
-      for (let x = 0; x < width - blockSize; x += blockSize) {
-        let totalContrast = 0;
-        let pixelCount = 0;
-        let maxDiff = 0;
-        
-        // Calculate contrast and variance in this block
-        for (let by = 0; by < blockSize && y + by < height; by++) {
-          for (let bx = 0; bx < blockSize && x + bx < width; bx++) {
-            const idx = ((y + by) * width + (x + bx)) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-            const brightness = (r + g + b) / 3;
-            
-            // Compare with neighbors
-            if (bx > 0 && by > 0) {
-              const prevIdx = ((y + by - 1) * width + (x + bx - 1)) * 4;
-              const prevR = data[prevIdx];
-              const prevG = data[prevIdx + 1];
-              const prevB = data[prevIdx + 1];
-              const prevBrightness = (prevR + prevG + prevB) / 3;
-              
-              const diff = Math.abs(brightness - prevBrightness);
-              totalContrast += diff;
-              maxDiff = Math.max(maxDiff, diff);
-              pixelCount++;
-            }
-          }
-        }
-        
-        const avgContrast = pixelCount > 0 ? totalContrast / pixelCount : 0;
-        const contrastScore = avgContrast / 255; // Normalize to 0-1
-        
-        // Detect damage if contrast is high (scratches, dents create high contrast)
-        if (contrastScore > threshold || maxDiff > 50) {
-          const confidence = Math.min(0.95, 0.4 + (contrastScore * 0.5) + (maxDiff / 255) * 0.3);
-          
-          damageAreas.push({
-            x: vehicleBox.x + x,
-            y: vehicleBox.y + y,
-            width: Math.min(blockSize, width - x),
-            height: Math.min(blockSize, height - y),
-            confidence: confidence
-          });
-        }
-      }
-    }
-    
-    // Merge nearby damage areas and update detections
-    const merged = mergeNearbyBoxes(damageAreas);
-    damageDetectionsRef.current = merged.map(area => ({
-      box: { x: area.x, y: area.y, width: area.width, height: area.height },
-      confidence: area.confidence,
-      label: 'DAMAGE'
-    }));
-  } catch (error) {
-    console.error('Damage detection error:', error);
-  }
-}
-
-// Merge nearby bounding boxes
-function mergeNearbyBoxes(
-  boxes: Array<{ x: number; y: number; width: number; height: number; confidence: number }>
-): Array<{ x: number; y: number; width: number; height: number; confidence: number }> {
-  if (boxes.length === 0) return [];
-  
-  const merged: Array<{ x: number; y: number; width: number; height: number; confidence: number }> = [];
-  const used = new Set<number>();
-  
-  for (let i = 0; i < boxes.length; i++) {
-    if (used.has(i)) continue;
-    
-    let currentBox = { ...boxes[i] };
-    used.add(i);
-    
-    // Find and merge nearby boxes
-    for (let j = i + 1; j < boxes.length; j++) {
-      if (used.has(j)) continue;
-      
-      const otherBox = boxes[j];
-      const distance = Math.sqrt(
-        Math.pow((currentBox.x + currentBox.width / 2) - (otherBox.x + otherBox.width / 2), 2) +
-        Math.pow((currentBox.y + currentBox.height / 2) - (otherBox.y + otherBox.height / 2), 2)
-      );
-      
-      // Merge if boxes are close (within 60 pixels)
-      if (distance < 60) {
-        const minX = Math.min(currentBox.x, otherBox.x);
-        const minY = Math.min(currentBox.y, otherBox.y);
-        const maxX = Math.max(currentBox.x + currentBox.width, otherBox.x + otherBox.width);
-        const maxY = Math.max(currentBox.y + currentBox.height, otherBox.y + otherBox.height);
-        
-        currentBox = {
-          x: minX,
-          y: minY,
-          width: maxX - minX,
-          height: maxY - minY,
-          confidence: Math.max(currentBox.confidence, otherBox.confidence)
-        };
-        used.add(j);
-      }
-    }
-    
-    merged.push(currentBox);
-  }
-  
-  return merged;
-}
-
-// Draw damage bounding box with label
-function drawDamageBox(
-  ctx: CanvasRenderingContext2D,
-  box: Box,
-  confidence: number,
-  label: string
-) {
-  // Draw red bounding box
-  ctx.strokeStyle = '#f44336';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(box.x, box.y, box.width, box.height);
-  
-  // Draw label background
-  const labelText = `${label} ${Math.round(confidence * 100)}%`;
-  ctx.font = 'bold 14px system-ui, sans-serif';
-  const textMetrics = ctx.measureText(labelText);
-  const labelWidth = textMetrics.width + 12;
-  const labelHeight = 20;
-  const labelX = box.x;
-  const labelY = Math.max(0, box.y - labelHeight);
-  
-  // Draw label background
-  ctx.fillStyle = '#f44336';
-  ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
-  
-  // Draw label text
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText(labelText, labelX + 6, labelY + 3);
 }
 
